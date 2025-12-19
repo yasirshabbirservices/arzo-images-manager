@@ -630,6 +630,62 @@ function aim_admin_page() {
             .aim-panel-content-inner {
                 padding: 30px;
             }
+            
+            /* Toggle Switch */
+            .aim-switch-group {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+                margin-bottom: 20px;
+            }
+            
+            .aim-switch {
+                position: relative;
+                display: inline-block;
+                width: 50px;
+                height: 24px;
+            }
+            
+            .aim-switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            
+            .aim-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: var(--background-light);
+                transition: .4s;
+                border-radius: 34px;
+                border: 1px solid var(--border-color);
+            }
+            
+            .aim-slider:before {
+                position: absolute;
+                content: "";
+                height: 16px;
+                width: 16px;
+                left: 3px;
+                bottom: 3px;
+                background-color: var(--secondary-text);
+                transition: .4s;
+                border-radius: 50%;
+            }
+            
+            input:checked + .aim-slider {
+                background-color: var(--accent-color);
+                border-color: var(--accent-color);
+            }
+            
+            input:checked + .aim-slider:before {
+                transform: translateX(26px);
+                background-color: #fff;
+            }
         </style>
         
         <?php echo $notice; ?>
@@ -781,9 +837,12 @@ function aim_admin_page() {
                         <hr style="margin: 30px 0; border: 0; border-top: 1px solid var(--border-color);">
                         
                         <div class="aim-settings-section-title">Background Auto-Registration</div>
-                        <div class="aim-form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                            <input type="checkbox" id="aim_auto_register_enabled" name="aim_auto_register_enabled" value="1" <?php checked(get_option('aim_auto_register_enabled'), 1); ?> style="transform: scale(1.2);">
-                            <label for="aim_auto_register_enabled" class="aim-form-label" style="display: inline-block; margin: 0;">Enable Background Auto-Registration</label>
+                        <div class="aim-switch-group">
+                            <label class="aim-switch">
+                                <input type="checkbox" id="aim_auto_register_enabled" name="aim_auto_register_enabled" value="1" <?php checked(get_option('aim_auto_register_enabled'), 1); ?>>
+                                <span class="aim-slider"></span>
+                            </label>
+                            <label for="aim_auto_register_enabled" class="aim-form-label" style="margin: 0; cursor: pointer;">Enable Background Auto-Registration</label>
                         </div>
                         
                         <div class="aim-form-group">
