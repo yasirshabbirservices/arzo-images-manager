@@ -129,6 +129,20 @@ function aim_admin_page() {
                 --secondary-color: #6c757d;
             }
             
+            /* Hide WordPress admin footer */
+            #wpfooter, #footer-thankyou, #footer-upgrade {
+                display: none !important;
+            }
+            
+            /* Override WordPress admin background */
+            body.wp-admin {
+                background: var(--background-dark) !important;
+            }
+            
+            #wpcontent, #wpbody, #wpbody-content {
+                background: var(--background-dark) !important;
+            }
+            
             .aim-wrap {
                 font-family: 'Lato', sans-serif;
                 background: var(--background-dark);
@@ -320,6 +334,16 @@ function aim_admin_page() {
                 flex-wrap: wrap;
             }
             
+            .aim-btn-info {
+                background: var(--info-color);
+                color: var(--primary-text);
+            }
+            
+            .aim-btn-warning {
+                background: var(--warning-color);
+                color: var(--background-dark);
+            }
+            
             .aim-progress-section {
                 margin-top: 24px;
                 padding-top: 24px;
@@ -354,6 +378,8 @@ function aim_admin_page() {
                 color: var(--background-dark);
                 font-weight: 700;
                 font-size: 12px;
+                min-width: 50px; /* Ensure text is visible even at low percentages */
+                white-space: nowrap;
             }
             
             .aim-status-message {
@@ -540,6 +566,15 @@ function aim_admin_page() {
                 <button id="start-registering" class="aim-btn aim-btn-primary">
                     <span class="dashicons dashicons-update"></span> Start Bulk Registration
                 </button>
+                <button id="pause-operation" class="aim-btn aim-btn-warning" style="display: none;">
+                    <span class="dashicons dashicons-controls-pause"></span> Pause
+                </button>
+                <button id="resume-operation" class="aim-btn aim-btn-info" style="display: none;">
+                    <span class="dashicons dashicons-controls-play"></span> Resume
+                </button>
+                <button id="cancel-operation" class="aim-btn aim-btn-danger" style="display: none;">
+                    <span class="dashicons dashicons-no"></span> Cancel
+                </button>
                 <button id="register-specific" class="aim-btn aim-btn-secondary">
                     <span class="dashicons dashicons-search"></span> Register Specific File(s)
                 </button>
@@ -595,8 +630,98 @@ function aim_admin_page() {
     <script>
     jQuery(document).ready(function($) {
         
+        // Operation state management with localStorage
+        let operationState = {
+            isRunning: false,
+            isPaused: false,
+            offset: 0,
+            totalRegistered: 0,
+            totalSkipped: 0,
+            specificFile: false,
+            totalCount: parseInt($('#total-count').text())
+        };
+        
+        // Load saved state from localStorage
+        function loadState() {
+            const saved = localStorage.getItem('aim_operation_state');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.isRunning && !parsed.isPaused) {
+                        operationState = parsed;
+                        restoreUI();
+                    }
+                } catch(e) {
+                    console.error('Failed to load state:', e);
+                }
+            }
+        }
+        
+        // Save state to localStorage
+        function saveState() {
+            localStorage.setItem('aim_operation_state', JSON.stringify(operationState));
+        }
+        
+        // Clear state from localStorage
+        function clearState() {
+            localStorage.removeItem('aim_operation_state');
+        }
+        
+        // Restore UI based on saved state
+        function restoreUI() {
+            updateUI();
+            $('#progress-count').text(operationState.offset);
+            $('#registered-count').text(operationState.totalRegistered);
+            $('#skipped-count').text(operationState.totalSkipped);
+            
+            let percentage = Math.min((operationState.offset / operationState.totalCount * 100), 100);
+            $('#progress-fill').css('width', percentage + '%').text(Math.round(percentage) + '%');
+            
+            if (operationState.isRunning && !operationState.isPaused) {
+                $('#status-message').html('<span style="color: var(--info-color);">▶️ Resuming operation...</span>');
+                setTimeout(() => processRegistration(operationState.specificFile, true), 1000);
+            } else if (operationState.isPaused) {
+                $('#status-message').html('<span style="color: var(--warning-color);">⏸️ Operation paused</span>');
+                updateUI();
+            }
+        }
+        
+        // Update button visibility based on state
+        function updateUI() {
+            if (operationState.isRunning) {
+                $('#start-registering').hide();
+                $('#register-specific').hide();
+                
+                if (operationState.isPaused) {
+                    $('#pause-operation').hide();
+                    $('#resume-operation').show();
+                    $('#cancel-operation').show();
+                } else {
+                    $('#pause-operation').show();
+                    $('#resume-operation').hide();
+                    $('#cancel-operation').show();
+                }
+            } else {
+                $('#start-registering').show();
+                $('#register-specific').show();
+                $('#pause-operation').hide();
+                $('#resume-operation').hide();
+                $('#cancel-operation').hide();
+            }
+        }
+        
         // Bulk Registration
         $('#start-registering').on('click', function() {
+            operationState = {
+                isRunning: true,
+                isPaused: false,
+                offset: 0,
+                totalRegistered: 0,
+                totalSkipped: 0,
+                specificFile: false,
+                totalCount: parseInt($('#total-count').text())
+            };
+            saveState();
             processRegistration(false);
         });
         
@@ -607,66 +732,115 @@ function aim_admin_page() {
                 alert('Please enter a filename to search for.');
                 return;
             }
+            operationState = {
+                isRunning: true,
+                isPaused: false,
+                offset: 0,
+                totalRegistered: 0,
+                totalSkipped: 0,
+                specificFile: filename,
+                totalCount: parseInt($('#total-count').text())
+            };
+            saveState();
             processRegistration(filename);
         });
         
-        function processRegistration(specificFile) {
-            let btn = specificFile ? $('#register-specific') : $('#start-registering');
-            btn.prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Processing...');
+        // Pause Operation
+        $('#pause-operation').on('click', function() {
+            operationState.isPaused = true;
+            saveState();
+            updateUI();
+            $('#status-message').html('<span style="color: var(--warning-color);">⏸️ Operation paused</span>');
+        });
+        
+        // Resume Operation
+        $('#resume-operation').on('click', function() {
+            operationState.isPaused = false;
+            saveState();
+            updateUI();
+            $('#status-message').html('<span style="color: var(--info-color);">▶️ Resuming operation...</span>');
+            processRegistration(operationState.specificFile, true);
+        });
+        
+        // Cancel Operation
+        $('#cancel-operation').on('click', function() {
+            if (confirm('Are you sure you want to cancel the current operation?')) {
+                operationState.isRunning = false;
+                operationState.isPaused = false;
+                clearState();
+                updateUI();
+                $('#status-message').html('<span style="color: var(--danger-color);">❌ Operation cancelled</span>');
+                setTimeout(function() { location.reload(); }, 1500);
+            }
+        });
+        
+        function processRegistration(specificFile, isResume = false) {
+            if (!isResume) {
+                updateUI();
+            }
             
-            let batchSize = 10; 
-            let offset = 0;
-            let totalRegistered = 0;
-            let totalSkipped = 0;
+            let batchSize = 10;
             let progressCount = $('#progress-count');
             let progressFill = $('#progress-fill');
             let statusMessage = $('#status-message');
             let registeredCount = $('#registered-count');
             let skippedCount = $('#skipped-count');
-            let totalCount = parseInt($('#total-count').text());
             
             function registerBatch() {
+                // Check if paused
+                if (operationState.isPaused) {
+                    return;
+                }
+                
                 $.ajax({
                     url: ajaxurl,
                     type: 'POST',
                     data: {
                         action: 'aim_register_batch',
-                        offset: offset,
+                        offset: operationState.offset,
                         batch_size: batchSize,
                         specific_file: specificFile || ''
                     },
                     success: function(response) {
                         if (response.success) {
-                            offset += batchSize;
-                            totalRegistered += response.data.registered;
-                            totalSkipped += response.data.skipped;
+                            operationState.offset += batchSize;
+                            operationState.totalRegistered += response.data.registered;
+                            operationState.totalSkipped += response.data.skipped;
+                            saveState();
                             
-                            progressCount.text(offset);
-                            registeredCount.text(totalRegistered);
-                            skippedCount.text(totalSkipped);
+                            progressCount.text(operationState.offset);
+                            registeredCount.text(operationState.totalRegistered);
+                            skippedCount.text(operationState.totalSkipped);
                             
-                            let percentage = Math.min((offset / totalCount * 100), 100);
+                            let percentage = Math.min((operationState.offset / operationState.totalCount * 100), 100);
                             progressFill.css('width', percentage + '%').text(Math.round(percentage) + '%');
                             
                             if (response.data.history_html) {
                                 $('#history-body').prepend(response.data.history_html);
                             }
                             
-                            if (specificFile || offset >= totalCount) {
-                                statusMessage.html('<span style="color: var(--success-color);">✅ Complete! Registered: ' + totalRegistered + ', Skipped: ' + totalSkipped + '</span>');
-                                btn.prop('disabled', false).html(specificFile ? '<span class="dashicons dashicons-search"></span> Register Specific File(s)' : '<span class="dashicons dashicons-update"></span> Start Bulk Registration');
+                            if (specificFile || operationState.offset >= operationState.totalCount) {
+                                statusMessage.html('<span style="color: var(--success-color);">✅ Complete! Registered: ' + operationState.totalRegistered + ', Skipped: ' + operationState.totalSkipped + '</span>');
+                                operationState.isRunning = false;
+                                clearState();
+                                updateUI();
                                 setTimeout(function() { location.reload(); }, 2000);
-                            } else {
+                            } else if (!operationState.isPaused) {
+                                statusMessage.html('<span style="color: var(--info-color);">⚙️ Processing batch...</span>');
                                 setTimeout(registerBatch, 500);
                             }
                         } else {
                             statusMessage.html('<span style="color: var(--danger-color);">❌ Error: ' + response.data.message + '</span>');
-                            btn.prop('disabled', false).html(specificFile ? '<span class="dashicons dashicons-search"></span> Register Specific File(s)' : '<span class="dashicons dashicons-update"></span> Start Bulk Registration');
+                            operationState.isRunning = false;
+                            clearState();
+                            updateUI();
                         }
                     },
                     error: function() {
                         statusMessage.html('<span style="color: var(--danger-color);">❌ Connection error. Please try again.</span>');
-                        btn.prop('disabled', false).html(specificFile ? '<span class="dashicons dashicons-search"></span> Register Specific File(s)' : '<span class="dashicons dashicons-update"></span> Start Bulk Registration');
+                        operationState.isRunning = false;
+                        clearState();
+                        updateUI();
                     }
                 });
             }
@@ -681,11 +855,15 @@ function aim_admin_page() {
                     action: 'aim_clear_history'
                 }, function(response) {
                     if (response.success) {
+                        clearState();
                         location.reload();
                     }
                 });
             }
         });
+        
+        // Initialize: Load state on page load
+        loadState();
     });
     </script>
     <?php
