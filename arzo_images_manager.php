@@ -82,7 +82,7 @@ function aim_add_admin_menu() {
 // ============================================================================
 
 function aim_get_image_directory() {
-    $custom_dir = get_option('aim_image_directory', 'productimages');
+    $custom_dir = get_option('aim_image_directory', '');
     $upload_dir = wp_upload_dir();
     return trailingslashit($upload_dir['basedir']) . trim($custom_dir, '/') . '/';
 }
@@ -106,7 +106,7 @@ function aim_admin_page() {
     
     $notice = aim_save_settings();
     $stats = aim_get_statistics();
-    $current_dir = get_option('aim_image_directory', 'productimages');
+    $current_dir = get_option('aim_image_directory', '');
     
     ?>
     <div class="aim-wrap">
@@ -744,7 +744,7 @@ function aim_admin_page() {
                         <?php wp_nonce_field('aim_settings_nonce'); ?>
                         <div class="aim-form-group">
                             <label class="aim-form-label">Images Directory Path</label>
-                            <input type="text" name="aim_image_directory" class="aim-form-input" value="<?php echo esc_attr($current_dir); ?>" placeholder="productimages">
+                            <input type="text" name="aim_image_directory" class="aim-form-input" value="<?php echo esc_attr($current_dir); ?>" placeholder="Leave empty for root uploads folder">
                             <div class="aim-form-help">
                                 Relative to WordPress uploads folder. Current full path: <code class="aim-code"><?php echo aim_get_image_directory(); ?></code>
                             </div>
