@@ -97,6 +97,26 @@ function aim_save_settings() {
     if (isset($_POST['aim_save_settings']) && check_admin_referer('aim_settings_nonce')) {
         $directory = sanitize_text_field($_POST['aim_image_directory']);
         update_option('aim_image_directory', $directory);
+        
+        // Auto-Registration Settings
+        $auto_register = isset($_POST['aim_auto_register_enabled']) ? 1 : 0;
+        $limit = intval($_POST['aim_auto_register_limit']);
+        
+        update_option('aim_auto_register_enabled', $auto_register);
+        update_option('aim_auto_register_limit', $limit);
+        
+        // Handle Cron Scheduling
+        if ($auto_register) {
+            if (!wp_next_scheduled('aim_cron_auto_register')) {
+                wp_schedule_event(time(), 'hourly', 'aim_cron_auto_register');
+            }
+        } else {
+            $timestamp = wp_next_scheduled('aim_cron_auto_register');
+            if ($timestamp) {
+                wp_unschedule_event($timestamp, 'aim_cron_auto_register');
+            }
+        }
+        
         return '<div class="aim-notice aim-notice-success">Settings saved successfully!</div>';
     }
     return '';
@@ -748,6 +768,8 @@ function aim_admin_page() {
                 <div class="aim-panel-content-inner">
                     <form method="post">
                         <?php wp_nonce_field('aim_settings_nonce'); ?>
+                        
+                        <div class="aim-settings-section-title">Directory Configuration</div>
                         <div class="aim-form-group">
                             <label class="aim-form-label">Images Directory Path</label>
                             <input type="text" name="aim_image_directory" class="aim-form-input" value="<?php echo esc_attr($current_dir); ?>" placeholder="Leave empty for root uploads folder">
@@ -755,6 +777,23 @@ function aim_admin_page() {
                                 Relative to WordPress uploads folder. Current full path: <code class="aim-code"><?php echo aim_get_image_directory(); ?></code>
                             </div>
                         </div>
+                        
+                        <hr style="margin: 30px 0; border: 0; border-top: 1px solid var(--border-color);">
+                        
+                        <div class="aim-settings-section-title">Background Auto-Registration</div>
+                        <div class="aim-form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                            <input type="checkbox" id="aim_auto_register_enabled" name="aim_auto_register_enabled" value="1" <?php checked(get_option('aim_auto_register_enabled'), 1); ?> style="transform: scale(1.2);">
+                            <label for="aim_auto_register_enabled" class="aim-form-label" style="display: inline-block; margin: 0;">Enable Background Auto-Registration</label>
+                        </div>
+                        
+                        <div class="aim-form-group">
+                            <label class="aim-form-label">Auto-Registration Batch Limit</label>
+                            <input type="number" name="aim_auto_register_limit" class="aim-form-input" style="width: 150px;" value="<?php echo esc_attr(get_option('aim_auto_register_limit', 50)); ?>" min="1" max="500">
+                            <div class="aim-form-help">
+                                Maximum number of <strong>new</strong> images to process per hourly schedule check. Set lower if you experience server timeouts.
+                            </div>
+                        </div>
+                        
                         <button type="submit" name="aim_save_settings" class="aim-btn aim-btn-primary">
                             <span class="dashicons dashicons-saved"></span> Save Settings
                         </button>
@@ -1204,15 +1243,13 @@ function aim_render_history_row($row) {
 add_action('wp_ajax_aim_register_batch', 'aim_process_batch');
 
 function aim_process_batch() {
-    global $wpdb;
-    $history_table = $wpdb->prefix . 'image_registration_history';
-    
     $batch_size = isset($_POST['batch_size']) ? intval($_POST['batch_size']) : 10;
     $offset = isset($_POST['offset']) ? intval($_POST['offset']) : 0;
     $specific_file = isset($_POST['specific_file']) ? sanitize_text_field($_POST['specific_file']) : '';
     
     $image_dir = aim_get_image_directory();
     
+    // ... (directory checks kept same but shortened for diff) ...
     if (!is_dir($image_dir)) {
         wp_send_json_error(array('message' => 'Directory not found: ' . $image_dir));
         return;
@@ -1228,12 +1265,9 @@ function aim_process_batch() {
         $all_files = array_filter($all_files, function($file) use ($specific_file) {
             $file_no_ext = pathinfo($file, PATHINFO_FILENAME);
             $search_no_ext = pathinfo($specific_file, PATHINFO_FILENAME);
-            
-            // If search includes extension, exact match
             if (strpos($specific_file, '.') !== false) {
                 return $file === $specific_file;
             }
-            // If no extension, match filename without extension
             return $file_no_ext === $search_no_ext;
         });
         $all_files = array_values($all_files);
@@ -1247,68 +1281,24 @@ function aim_process_batch() {
     $history_records = array();
     
     foreach ($files as $file) {
-        $file_path = $image_dir . $file;
-        $file_size = filesize($file_path);
-        $filetype = wp_check_filetype($file_path);
+        $result = aim_register_single_image($file, $image_dir);
         
-        $exists = aim_check_duplicate($file_path, $file);
-        
-        if ($exists) {
+        if ($result['status'] === 'registered') {
+            $registered++;
+        } elseif ($result['status'] === 'skipped') {
             $skipped++;
-            
-            $wpdb->insert(
-                $history_table,
-                array(
-                    'filename' => $file,
-                    'file_path' => $file_path,
-                    'file_size' => $file_size,
-                    'file_type' => $filetype['type'],
-                    'status' => 'skipped',
-                    'reason' => 'File already exists in media library (Duplicate detected)',
-                    'attachment_id' => $exists
-                ),
-                array('%s', '%s', '%d', '%s', '%s', '%s', '%d')
-            );
-            
-            $history_records[] = $wpdb->insert_id;
-            
-        } else {
-            $attachment = array(
-                'post_mime_type' => $filetype['type'],
-                'post_title' => sanitize_file_name(pathinfo($file, PATHINFO_FILENAME)),
-                'post_content' => '',
-                'post_status' => 'inherit'
-            );
-            
-            $attach_id = wp_insert_attachment($attachment, $file_path);
-            
-            if (!is_wp_error($attach_id)) {
-                require_once(ABSPATH . 'wp-admin/includes/image.php');
-                $attach_data = wp_generate_attachment_metadata($attach_id, $file_path);
-                wp_update_attachment_metadata($attach_id, $attach_data);
-                
-                $registered++;
-                
-                $wpdb->insert(
-                    $history_table,
-                    array(
-                        'filename' => $file,
-                        'file_path' => $file_path,
-                        'file_size' => $file_size,
-                        'file_type' => $filetype['type'],
-                        'status' => 'registered',
-                        'reason' => 'Successfully registered to media library',
-                        'attachment_id' => $attach_id
-                    ),
-                    array('%s', '%s', '%d', '%s', '%s', '%s', '%d')
-                );
-                
-                $history_records[] = $wpdb->insert_id;
-            }
+        }
+        
+        if (isset($result['history_id'])) {
+            $history_records[] = $result['history_id'];
         }
     }
     
+    // Fetch HTML for new history records
+    global $wpdb;
+    $history_table = $wpdb->prefix . 'image_registration_history';
     $history_html = '';
+    
     foreach ($history_records as $record_id) {
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $history_table WHERE id = %d", $record_id));
         if ($row) {
@@ -1324,6 +1314,85 @@ function aim_process_batch() {
         'skipped' => $skipped,
         'history_html' => $history_html
     ));
+}
+
+/**
+ * Helper function to register a single image
+ * Used by both AJAX batch process and Cron background process
+ */
+function aim_register_single_image($filename, $directory) {
+    global $wpdb;
+    $history_table = $wpdb->prefix . 'image_registration_history';
+    $file_path = $directory . $filename;
+    
+    // Basic file checks
+    if (!file_exists($file_path)) {
+        return array('status' => 'error', 'message' => 'File not found');
+    }
+    
+    $file_size = filesize($file_path);
+    $filetype = wp_check_filetype($file_path);
+    
+    // Check for duplicate
+    $exists = aim_check_duplicate($file_path, $filename);
+    
+    if ($exists) {
+        $wpdb->insert(
+            $history_table,
+            array(
+                'filename' => $filename,
+                'file_path' => $file_path,
+                'file_size' => $file_size,
+                'file_type' => $filetype['type'],
+                'status' => 'skipped',
+                'reason' => 'Duplicate detected',
+                'attachment_id' => $exists
+            ),
+            array('%s', '%s', '%d', '%s', '%s', '%s', '%d')
+        );
+        
+        return array(
+            'status' => 'skipped',
+            'history_id' => $wpdb->insert_id
+        );
+        
+    } else {
+        $attachment = array(
+            'post_mime_type' => $filetype['type'],
+            'post_title' => sanitize_file_name(pathinfo($filename, PATHINFO_FILENAME)),
+            'post_content' => '',
+            'post_status' => 'inherit'
+        );
+        
+        $attach_id = wp_insert_attachment($attachment, $file_path);
+        
+        if (!is_wp_error($attach_id)) {
+            require_once(ABSPATH . 'wp-admin/includes/image.php');
+            $attach_data = wp_generate_attachment_metadata($attach_id, $file_path);
+            wp_update_attachment_metadata($attach_id, $attach_data);
+            
+            $wpdb->insert(
+                $history_table,
+                array(
+                    'filename' => $filename,
+                    'file_path' => $file_path,
+                    'file_size' => $file_size,
+                    'file_type' => $filetype['type'],
+                    'status' => 'registered',
+                    'reason' => 'Successfully registered',
+                    'attachment_id' => $attach_id
+                ),
+                array('%s', '%s', '%d', '%s', '%s', '%s', '%d')
+            );
+            
+            return array(
+                'status' => 'registered',
+                'history_id' => $wpdb->insert_id
+            );
+        } else {
+            return array('status' => 'error', 'message' => $attach_id->get_error_message());
+        }
+    }
 }
 
 add_action('wp_ajax_aim_clear_history', 'aim_clear_history');
@@ -1478,5 +1547,61 @@ function aim_store_file_hash($attachment_id) {
         if ($file_hash) {
             update_post_meta($attachment_id, '_wp_attachment_file_hash', $file_hash);
         }
+    }
+}
+
+// ============================================================================
+// BACKGROUND PROCESS (CRON)
+// ============================================================================
+
+add_action('aim_cron_auto_register', 'aim_handle_auto_registration');
+
+function aim_handle_auto_registration() {
+    // Check if enabled
+    if (!get_option('aim_auto_register_enabled')) {
+        return;
+    }
+    
+    $image_dir = aim_get_image_directory();
+    if (!is_dir($image_dir)) {
+        return;
+    }
+    
+    // Get all files in directory
+    $all_files = array_diff(scandir($image_dir), array('.', '..'));
+    $all_files = array_filter($all_files, function($file) use ($image_dir) {
+        return is_file($image_dir . $file);
+    });
+    
+    if (empty($all_files)) {
+        return;
+    }
+    
+    // OPTIMIZATION: Get array of already processed filenames from history
+    // This avoids running heavy WP/DB duplicate checks on thousands of existing files
+    global $wpdb;
+    $history_table = $wpdb->prefix . 'image_registration_history';
+    
+    // Fetch only filenames to minimize memory usage
+    $processed_files = $wpdb->get_col("SELECT filename FROM $history_table");
+    
+    // Find files that are NOT in history
+    // These are the "potential" new files we need to check properly
+    $new_files = array_diff($all_files, $processed_files);
+    
+    if (empty($new_files)) {
+        return;
+    }
+    
+    // Reset keys
+    $new_files = array_values($new_files);
+    
+    // Limit processing to avoid timeout
+    $limit = get_option('aim_auto_register_limit', 50);
+    $files_to_process = array_slice($new_files, 0, $limit);
+    
+    // Process the batch
+    foreach ($files_to_process as $file) {
+        aim_register_single_image($file, $image_dir);
     }
 }
