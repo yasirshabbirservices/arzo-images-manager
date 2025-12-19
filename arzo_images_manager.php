@@ -950,10 +950,27 @@ function aim_admin_page() {
                             let percentage = Math.min((operationState.offset / operationState.totalCount * 100), 100);
                             progressFill.css('width', percentage + '%').text(Math.round(percentage) + '%');
                             
-                            // Don't prepend history during operations to maintain pagination
-                            // if (response.data.history_html) {
-                            //     $('#history-body').prepend(response.data.history_html);
-                            // }
+                            // Update history table if on page 1
+                            if (response.data.history_html && currentPage === 1) {
+                                $('#history-body').prepend(response.data.history_html);
+                                
+                                // Limit to 20 rows to keep page size consistent
+                                const maxRows = 20;
+                                const $rows = $('#history-body tr');
+                                if ($rows.length > maxRows) {
+                                    $rows.slice(maxRows).remove();
+                                }
+                            }
+                            
+                            // Update total records and pages counter
+                            const currentTotal = parseInt($('#total-records').text()) || 0;
+                            const newTotal = currentTotal + response.data.registered + response.data.skipped;
+                            $('#total-records').text(newTotal);
+                            
+                            const newTotalPages = Math.ceil(newTotal / 20);
+                            totalPages = newTotalPages; // Update global variable
+                            $('#total-pages').text(newTotalPages);
+                            updatePaginationButtons();
                             
                             if (specificFile || operationState.offset >= operationState.totalCount) {
                                 statusMessage.html('<span style="color: var(--success-color);">✅ Complete! Registered: ' + operationState.totalRegistered + ', Skipped: ' + operationState.totalSkipped + '</span>');
