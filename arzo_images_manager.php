@@ -84,7 +84,13 @@ function aim_add_admin_menu() {
 function aim_get_image_directory() {
     $custom_dir = get_option('aim_image_directory', '');
     $upload_dir = wp_upload_dir();
-    return trailingslashit($upload_dir['basedir']) . trim($custom_dir, '/') . '/';
+    $path = trailingslashit($upload_dir['basedir']);
+    
+    if (!empty($custom_dir)) {
+        $path .= trim($custom_dir, '/') . '/';
+    }
+    
+    return $path;
 }
 
 function aim_save_settings() {
