@@ -493,6 +493,117 @@ function aim_admin_page() {
                 font-size: 11px;
                 color: var(--accent-color);
             }
+            
+            .aim-pagination {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 20px 0;
+                margin-top: 20px;
+                border-top: 1px solid var(--border-color);
+            }
+            
+            .aim-pagination-info {
+                color: var(--secondary-text);
+                font-size: 14px;
+            }
+            
+            .aim-pagination-info strong {
+                color: var(--primary-text);
+            }
+            
+            .aim-pagination-controls {
+                display: flex;
+                gap: 12px;
+            }
+            
+            .aim-pagination-btn {
+                padding: 8px 16px;
+                background: var(--background-light);
+                border: 1px solid var(--border-color);
+                border-radius: 3px;
+                color: var(--primary-text);
+                font-family: 'Lato', sans-serif;
+                font-size: 13px;
+                font-weight: 700;
+                cursor: pointer;
+                transition: all 0.2s;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+            
+            .aim-pagination-btn:hover:not(:disabled) {
+                background: var(--background-medium);
+                border-color: var(--accent-color);
+                transform: translateY(-1px);
+            }
+            
+            .aim-pagination-btn:disabled {
+                opacity: 0.3;
+                cursor: not-allowed;
+            }
+            
+            .aim-loading {
+                opacity: 0.5;
+                pointer-events: none;
+            }
+            
+            /* Collapsible Panel Styles */
+            .aim-panel-collapsible {
+                border: 1px solid var(--border-color);
+            }
+            
+            .aim-panel-header {
+                background: var(--background-medium);
+                padding: 20px 30px;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                transition: all 0.3s;
+                border-radius: 3px;
+                user-select: none;
+            }
+            
+            .aim-panel-header:hover {
+                background: var(--background-light);
+            }
+            
+            .aim-panel-header h2 {
+                margin: 0;
+                padding: 0;
+                border: none;
+                font-size: 20px;
+                font-weight: 700;
+                color: var(--primary-text);
+            }
+            
+            .aim-panel-toggle {
+                font-size: 24px;
+                transition: transform 0.3s;
+                color: var(--accent-color);
+            }
+            
+            .aim-panel-toggle.expanded {
+                transform: rotate(180deg);
+            }
+            
+            .aim-panel-content {
+                max-height: 0;
+                overflow: hidden;
+                transition: max-height 0.3s ease-out;
+                background: var(--background-medium);
+            }
+            
+            .aim-panel-content.expanded {
+                max-height: 500px;
+                transition: max-height 0.4s ease-in;
+            }
+            
+            .aim-panel-content-inner {
+                padding: 30px;
+            }
         </style>
         
         <?php echo $notice; ?>
@@ -532,24 +643,7 @@ function aim_admin_page() {
             </div>
         </div>
         
-        <!-- Settings Panel -->
-        <div class="aim-panel">
-            <h2>⚙️ Settings</h2>
-            <form method="post">
-                <?php wp_nonce_field('aim_settings_nonce'); ?>
-                <div class="aim-form-group">
-                    <label class="aim-form-label">Images Directory Path</label>
-                    <input type="text" name="aim_image_directory" class="aim-form-input" value="<?php echo esc_attr($current_dir); ?>" placeholder="productimages">
-                    <div class="aim-form-help">
-                        Relative to WordPress uploads folder. Current full path: <code class="aim-code"><?php echo aim_get_image_directory(); ?></code>
-                    </div>
-                </div>
-                <button type="submit" name="aim_save_settings" class="aim-btn aim-btn-primary">
-                    <span class="dashicons dashicons-saved"></span> Save Settings
-                </button>
-            </form>
-        </div>
-        
+
         <!-- Control Panel -->
         <div class="aim-panel">
             <h2>🎮 Control Panel</h2>
@@ -616,9 +710,25 @@ function aim_admin_page() {
                         </tr>
                     </thead>
                     <tbody id="history-body">
-                        <?php aim_display_history(); ?>
+                        <?php aim_display_history(20); ?>
                     </tbody>
                 </table>
+            </div>
+            
+            <!-- Pagination Controls -->
+            <div class="aim-pagination">
+                <div class="aim-pagination-info">
+                    Page <strong id="current-page">1</strong> of <strong id="total-pages"><?php echo aim_get_total_pages(20); ?></strong>
+                    <span style="margin-left: 16px;">Total Records: <strong id="total-records"><?php echo aim_get_total_records(); ?></strong></span>
+                </div>
+                <div class="aim-pagination-controls">
+                    <button id="prev-page" class="aim-pagination-btn" disabled>
+                        <span class="dashicons dashicons-arrow-left-alt2"></span> Previous
+                    </button>
+                    <button id="next-page" class="aim-pagination-btn">
+                        Next <span class="dashicons dashicons-arrow-right-alt2"></span>
+                    </button>
+                </div>
             </div>
         </div>
         
@@ -864,6 +974,89 @@ function aim_admin_page() {
         
         // Initialize: Load state on page load
         loadState();
+        
+        // ====================================================================
+        // PAGINATION FUNCTIONALITY
+        // ====================================================================
+        
+        let currentPage = 1;
+        let totalPages = parseInt($('#total-pages').text());
+        
+        // Update pagination buttons state
+        function updatePaginationButtons() {
+            $('#prev-page').prop('disabled', currentPage <= 1);
+            $('#next-page').prop('disabled', currentPage >= totalPages);
+        }
+        
+        // Load history page via AJAX
+        function loadHistoryPage(page) {
+            const $historyBody = $('#history-body');
+            const $tableWrapper = $('.aim-table-wrapper');
+            
+            // Add loading state
+            $tableWrapper.addClass('aim-loading');
+            
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'aim_load_history_page',
+                    page: page
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $historyBody.html(response.data.html);
+                        currentPage = response.data.current_page;
+                        totalPages = response.data.total_pages;
+                        
+                        $('#current-page').text(currentPage);
+                        $('#total-pages').text(totalPages);
+                        $('#total-records').text(response.data.total_records);
+                        
+                        updatePaginationButtons();
+                    }
+                    $tableWrapper.removeClass('aim-loading');
+                },
+                error: function() {
+                    alert('Error loading history page. Please try again.');
+                    $tableWrapper.removeClass('aim-loading');
+                }
+            });
+        }
+        
+        // Previous page button
+        $('#prev-page').on('click', function() {
+            if (currentPage > 1) {
+                loadHistoryPage(currentPage - 1);
+            }
+        });
+        
+        // Next page button
+        $('#next-page').on('click', function() {
+            if (currentPage < totalPages) {
+                loadHistoryPage(currentPage + 1);
+            }
+        });
+        
+        // Initialize pagination buttons
+        updatePaginationButtons();
+        
+        // ====================================================================
+        // COLLAPSIBLE SETTINGS PANEL
+        // ====================================================================
+        
+        $('#settings-header').on('click', function() {
+            const $content = $('#settings-content');
+            const $toggle = $(this).find('.aim-panel-toggle');
+            
+            if ($content.hasClass('expanded')) {
+                $content.removeClass('expanded');
+                $toggle.removeClass('expanded');
+            } else {
+                $content.addClass('expanded');
+                $toggle.addClass('expanded');
+            }
+        });
     });
     </script>
     <?php
@@ -903,12 +1096,25 @@ function aim_get_statistics() {
 // HISTORY DISPLAY
 // ============================================================================
 
-function aim_display_history($limit = 50) {
+function aim_get_total_records() {
+    global $wpdb;
+    $history_table = $wpdb->prefix . 'image_registration_history';
+    return (int)$wpdb->get_var("SELECT COUNT(*) FROM $history_table");
+}
+
+function aim_get_total_pages($per_page = 20) {
+    $total = aim_get_total_records();
+    return max(1, ceil($total / $per_page));
+}
+
+function aim_display_history($limit = 20, $page = 1) {
     global $wpdb;
     $history_table = $wpdb->prefix . 'image_registration_history';
     
+    $offset = ($page - 1) * $limit;
+    
     $results = $wpdb->get_results(
-        $wpdb->prepare("SELECT * FROM $history_table ORDER BY registered_date DESC LIMIT %d", $limit)
+        $wpdb->prepare("SELECT * FROM $history_table ORDER BY registered_date DESC LIMIT %d OFFSET %d", $limit, $offset)
     );
     
     if (empty($results)) {
@@ -1080,6 +1286,24 @@ function aim_clear_history() {
     $wpdb->query("TRUNCATE TABLE $history_table");
     
     wp_send_json_success(array('message' => 'History cleared successfully'));
+}
+
+add_action('wp_ajax_aim_load_history_page', 'aim_load_history_page');
+
+function aim_load_history_page() {
+    $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+    $per_page = 20;
+    
+    ob_start();
+    aim_display_history($per_page, $page);
+    $html = ob_get_clean();
+    
+    wp_send_json_success(array(
+        'html' => $html,
+        'total_pages' => aim_get_total_pages($per_page),
+        'total_records' => aim_get_total_records(),
+        'current_page' => $page
+    ));
 }
 
 // ============================================================================
