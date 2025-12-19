@@ -732,6 +732,31 @@ function aim_admin_page() {
             </div>
         </div>
         
+        <!-- Settings Panel (Collapsible) -->
+        <div class="aim-panel aim-panel-collapsible">
+            <div class="aim-panel-header" id="settings-header">
+                <h2>⚙️ Settings</h2>
+                <span class="aim-panel-toggle dashicons dashicons-arrow-down"></span>
+            </div>
+            <div class="aim-panel-content" id="settings-content">
+                <div class="aim-panel-content-inner">
+                    <form method="post">
+                        <?php wp_nonce_field('aim_settings_nonce'); ?>
+                        <div class="aim-form-group">
+                            <label class="aim-form-label">Images Directory Path</label>
+                            <input type="text" name="aim_image_directory" class="aim-form-input" value="<?php echo esc_attr($current_dir); ?>" placeholder="productimages">
+                            <div class="aim-form-help">
+                                Relative to WordPress uploads folder. Current full path: <code class="aim-code"><?php echo aim_get_image_directory(); ?></code>
+                            </div>
+                        </div>
+                        <button type="submit" name="aim_save_settings" class="aim-btn aim-btn-primary">
+                            <span class="dashicons dashicons-saved"></span> Save Settings
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
         <div style="text-align: center; padding: 20px; color: var(--secondary-text); font-size: 12px;">
             Developed by <a href="https://yasirshabbir.com" target="_blank" style="color: var(--accent-color); text-decoration: none; font-weight: 700;">Yasir Shabbir</a>
         </div>
@@ -925,9 +950,10 @@ function aim_admin_page() {
                             let percentage = Math.min((operationState.offset / operationState.totalCount * 100), 100);
                             progressFill.css('width', percentage + '%').text(Math.round(percentage) + '%');
                             
-                            if (response.data.history_html) {
-                                $('#history-body').prepend(response.data.history_html);
-                            }
+                            // Don't prepend history during operations to maintain pagination
+                            // if (response.data.history_html) {
+                            //     $('#history-body').prepend(response.data.history_html);
+                            // }
                             
                             if (specificFile || operationState.offset >= operationState.totalCount) {
                                 statusMessage.html('<span style="color: var(--success-color);">✅ Complete! Registered: ' + operationState.totalRegistered + ', Skipped: ' + operationState.totalSkipped + '</span>');
