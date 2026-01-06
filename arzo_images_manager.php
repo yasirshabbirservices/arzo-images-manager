@@ -4,17 +4,12 @@
  * Plugin Name: Arzo Images Manager
  * Plugin URI: https://yasirshabbir.com
  * Description: Register missing images from custom folder with advanced duplicate detection and detailed history tracking
- * Version: 2.1.1
+ * Version: 2.0
  * Author: Yasir Shabbir
  * Author URI: https://yasirshabbir.com
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: arzo-images-manager
- * 
- * Changelog:
- * 2.1.0 - Added configurable directory path, specific file search, modern UI with dark theme
- * 2.0.0 - Added history tracking, statistics counters, multiple duplicate detection methods
- * 1.0.0 - Initial release
  */
 
 // Exit if accessed directly
@@ -25,7 +20,7 @@ if (!defined('ABSPATH')) {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-define('AIM_VERSION', '2.1.1');
+define('AIM_VERSION', '2.0');
 define('AIM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('AIM_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -936,8 +931,8 @@ function aim_admin_page()
 
     <!-- History Table -->
     <div class="aim-panel">
-        <h2>📜 Registration History</h2>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h2 style="margin-bottom:0;">📜 Registration History</h2>
             <button id="clear-history" class="aim-btn aim-btn-danger">
                 <span class="dashicons dashicons-trash"></span> Clear History
             </button>
